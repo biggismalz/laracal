@@ -53,6 +53,9 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])
+            ->darkModeBrandLogo(asset('laracal.png'))
+            ->brandLogo(asset('laracal.png'))
+            ->favicon(asset('favicon.png'));
     }
 }
