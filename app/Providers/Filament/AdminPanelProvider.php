@@ -6,6 +6,7 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -28,7 +29,7 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->colors([
-                'primary' => Color::Indigo,
+                'primary' => Color::Emerald,
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
@@ -56,6 +57,14 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->darkModeBrandLogo(asset('laracal.png'))
             ->brandLogo(asset('laracal.png'))
-            ->favicon(asset('favicon.png'));
+            ->favicon(asset('favicon.png'))
+            ->navigationItems([
+                NavigationItem::make('Booking Page')
+                    ->url('/book', shouldOpenInNewTab: true)
+                    ->icon('heroicon-o-window')
+                    ->group('Links')
+                    ->sort(1),
+            ]);
+            ;
     }
 }
