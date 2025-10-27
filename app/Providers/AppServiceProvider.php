@@ -6,12 +6,13 @@ use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
-        //
+        if ($secret = config('services.stripe.secret')) {
+            $this->app->singleton(\Stripe\StripeClient::class, function () use ($secret) {
+                return new \Stripe\StripeClient($secret);
+            });
+        }
     }
 
     /**

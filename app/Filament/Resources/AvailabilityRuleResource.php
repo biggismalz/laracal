@@ -39,12 +39,12 @@ class AvailabilityRuleResource extends Resource
                     ->seconds(false)
                     ->required()
                     ->after('start_time'),
-                Forms\Components\TextInput::make('capacity')
-                    ->numeric()
-                    ->minValue(1)
-                    ->default(1)
-                    ->required()
-                    ->helperText('Number of bookings allowed in this time range.'),
+                // Forms\Components\TextInput::make('capacity')
+                //     ->numeric()
+                //     ->minValue(1)
+                //     ->default(1)
+                //     ->required()
+                //     ->helperText('Number of bookings allowed in this time range.'),
                 Forms\Components\Select::make('timezone')
                     ->options(self::timezoneOptions())
                     ->searchable()
@@ -73,8 +73,8 @@ class AvailabilityRuleResource extends Resource
                     ->time('H:i'),
                 Tables\Columns\TextColumn::make('end_time')
                     ->time('H:i'),
-                Tables\Columns\TextColumn::make('capacity')
-                    ->sortable(),
+                // Tables\Columns\TextColumn::make('capacity')
+                //     ->sortable(),
                 Tables\Columns\TextColumn::make('timezone')
                     ->badge(),
                 Tables\Columns\IconColumn::make('is_active')

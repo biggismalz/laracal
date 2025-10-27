@@ -8,6 +8,7 @@ use App\Enums\PaymentOption;
 use App\Models\Booking;
 use App\Models\Service;
 use App\Services\Availability\SlotGenerator;
+use App\Services\Payments\StripeCheckoutSession;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,11 +26,19 @@ class PublicBookingController extends Controller
 
         $date = CarbonImmutable::parse($validated['date'], config('app.timezone'))->startOfDay();
 
+        $now = now(config('app.timezone'));
+
         $slots = $slotGenerator->generate(
             serviceId: $service->id,
             rangeStart: $date,
             rangeEnd: $date->endOfDay(),
-        )->map(fn (AvailabilitySlot $slot) => [
+        )->filter(function (AvailabilitySlot $slot) use ($date, $now) {
+            if (! $date->isSameDay($now)) {
+                return true;
+            }
+
+            return $slot->start->greaterThanOrEqualTo($now);
+        })->map(fn (AvailabilitySlot $slot) => [
             'start' => $slot->start->toIso8601String(),
             'end' => $slot->end->toIso8601String(),
             'label' => $slot->start->format('H:i') . ' - ' . $slot->end->format('H:i'),
@@ -38,7 +47,7 @@ class PublicBookingController extends Controller
         return response()->json(['data' => $slots]);
     }
 
-    public function store(Request $request, SlotGenerator $slotGenerator): JsonResponse
+    public function store(Request $request, SlotGenerator $slotGenerator, StripeCheckoutSession $checkoutSession): JsonResponse
     {
         $validated = $request->validate([
             'service_id' => ['required', 'exists:services,id'],
@@ -117,10 +126,24 @@ class PublicBookingController extends Controller
             'currency' => $service->currency,
         ]);
 
+        if (! config('services.stripe.secret')) {
+            return response()->json([
+                'message' => 'Stripe is not configured. Please try again later.',
+            ], 503);
+        }
+
+        $session = $checkoutSession->create(
+            booking: $booking->fresh('service'),
+            successUrl: route('booking.success', ['booking' => $booking]),
+            cancelUrl: route('booking.cancel', ['booking' => $booking]),
+        );
+
         return response()->json([
             'message' => 'Booking saved. We will direct you to payment shortly.',
             'booking_id' => $booking->id,
             'status' => $booking->status->value,
+            'checkout_session_id' => $session['id'],
+            'checkout_url' => $session['url'],
         ], 201);
     }
 }

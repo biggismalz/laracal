@@ -6,6 +6,7 @@ use App\Enums\BookingStatus;
 use App\Models\AvailabilityRule;
 use App\Models\Booking;
 use App\Models\Service;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -13,6 +14,34 @@ use Tests\TestCase;
 class PublicBookingFlowTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected array $checkoutCalls = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['services.stripe.secret' => 'sk_test_123456']);
+
+        $this->mock(
+            \App\Services\Payments\StripeCheckoutSession::class,
+            function ($mock) {
+                $mock->shouldReceive('create')
+                    ->andReturnUsing(function (Booking $booking, string $successUrl, string $cancelUrl) {
+                        $this->checkoutCalls[] = compact('booking', 'successUrl', 'cancelUrl');
+
+                        $booking->update([
+                            'stripe_checkout_session_id' => 'cs_test_' . $booking->id,
+                        ]);
+
+                        return [
+                            'id' => 'cs_test_' . $booking->id,
+                            'url' => 'https://stripe.test/checkout/' . $booking->id,
+                        ];
+                    });
+            }
+        );
+    }
 
     public function test_slots_endpoint_returns_available_slots(): void
     {
@@ -40,6 +69,37 @@ class PublicBookingFlowTest extends TestCase
             $json->has('data', 3)
                 ->where('data.0.label', '09:00 - 10:00')
         );
+    }
+
+    public function test_slots_endpoint_hides_past_times_for_today(): void
+    {
+        $now = CarbonImmutable::create(2025, 1, 6, 10, 30, 0, config('app.timezone'));
+        Carbon::setTestNow($now);
+
+        $service = Service::factory()->create([
+            'duration_minutes' => 60,
+            'buffer_before_minutes' => 0,
+            'buffer_after_minutes' => 0,
+        ]);
+
+        AvailabilityRule::factory()->for($service)->create([
+            'day_of_week' => $now->dayOfWeek,
+            'start_time' => '09:00:00',
+            'end_time' => '12:00:00',
+        ]);
+
+        $response = $this->getJson(route('booking.slots', [
+            'service' => $service,
+            'date' => $now->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertJson(fn ($json) =>
+            $json->has('data', 1)
+                ->where('data.0.label', '11:00 - 12:00')
+        );
+
+        Carbon::setTestNow();
     }
 
     public function test_booking_can_be_created_for_available_slot(): void
@@ -77,11 +137,63 @@ class PublicBookingFlowTest extends TestCase
         $response = $this->postJson(route('booking.store'), $payload);
 
         $response->assertCreated();
+        $response->assertJson(fn ($json) =>
+            $json->where('checkout_session_id', 'cs_test_1')
+                ->where('checkout_url', 'https://stripe.test/checkout/1')
+                ->etc()
+        );
+
         $this->assertDatabaseHas('bookings', [
             'service_id' => $service->id,
             'customer_email' => 'demo@example.com',
             'status' => BookingStatus::PendingPayment->value,
+            'stripe_checkout_session_id' => 'cs_test_1',
         ]);
+
+        $this->assertCount(1, $this->checkoutCalls);
+    }
+
+    public function test_cancel_route_releases_pending_booking(): void
+    {
+        $service = Service::factory()->create([
+            'duration_minutes' => 60,
+            'buffer_before_minutes' => 0,
+            'buffer_after_minutes' => 0,
+            'price_cents' => 18000,
+        ]);
+
+        $targetDate = CarbonImmutable::now()->addWeek()->startOfWeek();
+
+        AvailabilityRule::factory()->for($service)->create([
+            'day_of_week' => $targetDate->dayOfWeek,
+            'start_time' => '09:00:00',
+            'end_time' => '12:00:00',
+        ]);
+
+        $booking = Booking::factory()->create([
+            'service_id' => $service->id,
+            'scheduled_start' => $targetDate->setTime(9, 0),
+            'scheduled_end' => $targetDate->setTime(10, 0),
+            'status' => BookingStatus::PendingPayment,
+        ]);
+
+        $response = $this->get(route('booking.cancel', $booking));
+        $response->assertOk();
+
+        $booking->refresh();
+
+        $this->assertEquals(BookingStatus::Cancelled, $booking->status);
+        $this->assertNotNull($booking->cancelled_at);
+
+        $slotsResponse = $this->getJson(route('booking.slots', [
+            'service' => $service,
+            'date' => $targetDate->toDateString(),
+        ]));
+
+        $slotsResponse->assertOk();
+        $slotsResponse->assertJson(fn ($json) =>
+            $json->has('data', 3)
+        );
     }
 
     public function test_booking_creation_fails_if_slot_taken(): void
@@ -120,5 +232,6 @@ class PublicBookingFlowTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJson(['message' => 'Selected slot is no longer available. Please choose a different time.']);
+        $this->assertCount(0, $this->checkoutCalls);
     }
 }

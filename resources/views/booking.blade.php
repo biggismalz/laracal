@@ -449,6 +449,11 @@
                             throw new Error(payload.message || 'We could not save your booking.');
                         }
 
+                        if (payload.checkout_url) {
+                            window.location.href = payload.checkout_url;
+                            return;
+                        }
+
                         this.successMessage = payload.message || 'Booking saved. We will redirect you to payment shortly.';
                     } catch (error) {
                         console.error(error);
