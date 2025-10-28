@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Enums\BookingStatus;
+use App\Mail\Bookings\BookingPendingPaymentMail;
+use App\Mail\Bookings\NewBookingNotificationMail;
 use App\Models\AvailabilityRule;
 use App\Models\Booking;
 use App\Models\Service;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class PublicBookingFlowTest extends TestCase
@@ -22,6 +25,8 @@ class PublicBookingFlowTest extends TestCase
         parent::setUp();
 
         config(['services.stripe.secret' => 'sk_test_123456']);
+
+        Mail::fake();
 
         $this->mock(
             \App\Services\Payments\StripeCheckoutSession::class,
@@ -151,6 +156,11 @@ class PublicBookingFlowTest extends TestCase
         ]);
 
         $this->assertCount(1, $this->checkoutCalls);
+
+        $savedBooking = Booking::where('customer_email', 'demo@example.com')->first();
+
+        Mail::assertSent(BookingPendingPaymentMail::class, fn (BookingPendingPaymentMail $mail) => $mail->booking->is($savedBooking));
+        Mail::assertSent(NewBookingNotificationMail::class, fn (NewBookingNotificationMail $mail) => $mail->booking->is($savedBooking));
     }
 
     public function test_cancel_route_releases_pending_booking(): void
@@ -233,5 +243,6 @@ class PublicBookingFlowTest extends TestCase
         $response->assertStatus(422);
         $response->assertJson(['message' => 'Selected slot is no longer available. Please choose a different time.']);
         $this->assertCount(0, $this->checkoutCalls);
+        Mail::assertNothingSent();
     }
 }

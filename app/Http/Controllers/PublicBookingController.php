@@ -5,12 +5,15 @@ namespace App\Http\Controllers;
 use App\Data\AvailabilitySlot;
 use App\Enums\BookingStatus;
 use App\Enums\PaymentOption;
+use App\Mail\Bookings\BookingPendingPaymentMail;
+use App\Mail\Bookings\NewBookingNotificationMail;
 use App\Models\Booking;
 use App\Models\Service;
 use App\Services\Availability\SlotGenerator;
 use App\Services\Payments\StripeCheckoutSession;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -132,11 +135,19 @@ class PublicBookingController extends Controller
             ], 503);
         }
 
+        $booking->load('service');
+
         $session = $checkoutSession->create(
-            booking: $booking->fresh('service'),
+            booking: $booking,
             successUrl: route('booking.success', ['booking' => $booking]),
             cancelUrl: route('booking.cancel', ['booking' => $booking]),
         );
+
+        Mail::to($booking->customer_email)->send(new BookingPendingPaymentMail($booking));
+
+        if ($notify = config('mail.notify_address')) {
+            Mail::to($notify)->send(new NewBookingNotificationMail($booking));
+        }
 
         return response()->json([
             'message' => 'Booking saved. We will direct you to payment shortly.',
