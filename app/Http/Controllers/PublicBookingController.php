@@ -89,13 +89,8 @@ class PublicBookingController extends Controller
             ])
             ->where(function ($query) use ($scheduledStart, $scheduledEnd) {
                 $query
-                    ->whereBetween('scheduled_start', [$scheduledStart, $scheduledEnd])
-                    ->orWhereBetween('scheduled_end', [$scheduledStart, $scheduledEnd])
-                    ->orWhere(function ($subQuery) use ($scheduledStart, $scheduledEnd) {
-                        $subQuery
-                            ->where('scheduled_start', '<', $scheduledStart)
-                            ->where('scheduled_end', '>', $scheduledEnd);
-                    });
+                    ->where('scheduled_start', '<', $scheduledEnd)
+                    ->where('scheduled_end', '>', $scheduledStart);
             })
             ->exists();
 

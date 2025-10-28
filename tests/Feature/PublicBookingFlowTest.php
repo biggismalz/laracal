@@ -245,4 +245,46 @@ class PublicBookingFlowTest extends TestCase
         $this->assertCount(0, $this->checkoutCalls);
         Mail::assertNothingSent();
     }
+
+    public function test_adjacent_booking_is_allowed(): void
+    {
+        $this->withoutMiddleware(\App\Http\Middleware\VerifyCsrfToken::class);
+
+        $service = Service::factory()->create([
+            'duration_minutes' => 60,
+            'buffer_before_minutes' => 0,
+            'buffer_after_minutes' => 0,
+            'price_cents' => 15000,
+            'deposit_cents' => 5000,
+        ]);
+
+        $targetDate = CarbonImmutable::now()->addWeek()->startOfWeek();
+
+        AvailabilityRule::factory()->for($service)->create([
+            'day_of_week' => $targetDate->dayOfWeek,
+            'start_time' => '09:00:00',
+            'end_time' => '12:00:00',
+        ]);
+
+        Booking::factory()->create([
+            'service_id' => $service->id,
+            'scheduled_start' => $targetDate->setTime(9, 0),
+            'scheduled_end' => $targetDate->setTime(10, 0),
+            'status' => BookingStatus::PendingPayment,
+        ]);
+
+        $payload = [
+            'service_id' => $service->id,
+            'scheduled_start' => $targetDate->setTime(10, 0)->toIso8601String(),
+            'customer_name' => 'Second Customer',
+            'customer_email' => 'second@example.com',
+            'payment_option' => 'full',
+        ];
+
+        $response = $this->postJson(route('booking.store'), $payload);
+
+        $response->assertCreated();
+        $this->assertCount(1, $this->checkoutCalls);
+        Mail::assertSent(BookingPendingPaymentMail::class);
+    }
 }
